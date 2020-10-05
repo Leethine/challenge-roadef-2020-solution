@@ -13,8 +13,8 @@ while (1):
     try:
         isvalid = sample.checkValidity(idx)
         if isvalid:
-            solution = sample.genPermutation(idx)
-            print("{} is ok".format(solution))
+            solution = sample.greedySearch(idx)
+            print("{} is generated".format(solution))
         idx += 1
     except:
         break
