@@ -56,84 +56,82 @@ class RTE_solver:
         for intv in self._list_interventions:
             self._list_tmax[intv] = self._interventions[intv]["tmax"]
     
-    
-    """
-    def _decimal2t(self, n: int, t: int):
-        """
-        #Convert decimal number to t-system
-        #for generating permutations  
-        """
-        l = []
-        while n != 0:
-            l.append(int( n % t) )
-            n = int(n / t)
-        return l
-    """     
-    """
-    def genPermutation(self, n: int):
-        """
-        #Generate permutation according to n, an integer.
-        #Permutations are generated according to a specific order.
-        #The format of permutation is:
-        #index: [intv1, intv2, .... , intv_n] 
-        #value: [t_st1, t_st2, .... , t_stn ]
-        """
-        # number of permutations
-        npermutation = self._T ** self._NINTERVENTIONS
-        if n >= npermutation:
-            raise ValueError("n = {} exceeds the total number of permutations!".format(n))
-        
-        perm = []
-        l = self._decimal2t(n, self._T)
-        # append zero for short numbers, i.e. 11 => 011
-        if len(l) < self._NINTERVENTIONS:
-            for i in range(self._NINTERVENTIONS - len(l)):
-                l.append(0)
-        #print(l)
-        #print("total number of perm: {}".format(npermutation))
-        
-        # python counts from zero, but we count from 1
-        for i in l:
-            perm.append(i+1)
-
-        return perm
-    """
-    
-    """
-    def getmaxcomb(self):
-    
-        list_tmax = []
-        #print("TAG 0")
-        for i in range(self._NINTERVENTIONS):
-            intv = self._list_interventions[i]
-            list_tmax.append(int(self._interventions[intv]["tmax"]))
-        
-        comb = 1    
-        for i in range(len(list_tmax)):
-            #print(list_tmax[i])
-            comb *= list_tmax[i]
             
-        return comb
-    """
-    
-  
-    """
-    def checkValidity(self, perm: list):
+    def treeSearchTmax(self):
         """
-        #Ckeck validity of a certain permutation.
-        #According to three criterias.
-        #Given the serial number of permulation.
+        Find the solution according to Tmax
         """
-    
-        #perm = self.genPermutation(n)
+        
+        #TODO Test
+        
+        S = {}
+        S2 = self._list_interventions
+        
+        self.getListTmax()
+        dof = self._list_tmax
+        
+        # sort dictionary (degree of freedom)
+        dof = {k: v for k, v in sorted(dof.items(), key=lambda item: item[1])}
+        
+        S = {}
+        #for intv in self._list_interventions:
+        #    tree[intv] = 1
+        
+        nodes = list(dof.keys())
+        idx = 0
+        n_begin = 1
+        
+        while(True):
+            # get the intervention name for the current node
+            intv = nodes[idx]
+            # reset validity to default (false)
+            isValidNode = False
+            
+            print("Looping for {} within range [{}, {}]".format(intv, n_begin, dof[intv]))
+            for t_st in range(n_begin, int(dof[intv])+1):
+                S[intv] = t_st
+                
+                # check validity
+                if ( self.checkTmax(S) \
+                    and self.checkExclusion(S) \
+                    and self.checkResource(S) ):
+                    print("Temporary solution found at t_st = {}".format(t_st))
+                    # if ok, move to the next node
+                    idx = idx + 1
+                    # and reset the n_begin for the next node
+                    n_begin = 1
+                    # and set the validity flag
+                    isValidNode = True
+                    break
+                else:
+                    # if not valid, delete this item
+                    S.pop(intv)
+            
+            if not isValidNode:
+                # if the whole node is not valid, go back to parent node
+                print("No valid solution found for this branch...\nGoing back.")
+                idx = idx - 1
+                n_begin = n_begin + 1
+            
+            if idx >= len(dof):
+                break
+                
+        return S
+                
+                
+        
+    def checkTmax(self, S):
         # Criteria 1: t_st before tmax
-        #print(perm) #debug
-        for i in range(self._NINTERVENTIONS):
-            if perm[i] > int(self._interventions[self._list_interventions[i]]["tmax"]):
+        
+        ##for i in self._list_interventions:
+        for i in S.keys():
+            if S[i] > int(self._interventions[i]["tmax"]):
                 #print('no') # debugmsg
                 return False
+        return True
         
-        # Criteria 2: exclution
+    def checkExclusion(self, S):
+        # Criteria 2: exclusion
         if len(self._exclusions) == 0:
         # if no exclusion is listed
             pass
@@ -141,25 +139,32 @@ class RTE_solver:
             for key in self._exclusions.keys():
                 # current exclusion
                 exc = self._exclusions[key]
-                
+                    
                 # intervention's index in _list_interventions
-                intv1 = self._list_interventions.index(exc[0])
-                intv2 = self._list_interventions.index(exc[1])
-                
-                # search the start time for interventions
-                t1_st = perm[intv1]
-                t2_st = perm[intv2]
+                intv1 = exc[0]
+                intv2 = exc[1]
                 season = exc[2]
+                
+                # for the local checker
+                if not (intv1 in S and intv2 in S):
+                    break 
+                    
+                # search the start time for interventions
+                t1_st = S[intv1]
+                t2_st = S[intv2]
+                
                 # two interventions in the same season and same time
-                if ( t1_st in self._seasons[season] \
+                if ( (t1_st in self._seasons[season] \
                     or str(t1_st) in self._seasons[season] ) \
                     and ( t2_st in self._seasons[season] \
                     or str(t2_st) in self._seasons[season] ) \
-                    and t1_st == t2_st:
+                    and t1_st == t2_st ):
                     # TODO Verify if the exclusion is on season or time_st
                     #print('No') # debugmsg
                     return False
+        return True
         
+    def checkResource(self, S):
         # Criteria 3 : resources within range
         for c in self._list_resources:
         # for each resources, traverse each time period
@@ -173,14 +178,14 @@ class RTE_solver:
                 # resource consumption
                 res = 0
                 
-                for i in range(self._NINTERVENTIONS):
-                    interv = self._list_interventions[i]
-                    if t + 1 == perm[i]: 
+                ##for intv in self._list_interventions:
+                for intv in S.keys():
+                    if t + 1 == S[intv]: 
                         
                         try:
                             # First try to find the resource consumption according to c
                             # if this intervention does not require resource c, then pass
-                            wl = self._interventions[interv]["workload"][c]
+                            wl = self._interventions[intv]["workload"][c]
                             
                             # Then try to find the consumption according to t_st
                             # if this intervention did not list the complete t_st, then pass
@@ -199,266 +204,5 @@ class RTE_solver:
                 if res < min_t or res > max_t:
                     #print('Noo') # debugmsg
                     return False
-                    
         return True
-    """
-    
-    """
-    def genPermutation2(self, n: int):
-        """
-        #Generate search schema according to tmax.
-        #Permutations are generated according to a specific order.
-        #The format of permutation is:
-        #index: [intv1, intv2, .... , intv_n] 
-        #value: [t_st1, t_st2, .... , t_stn ]
-        #with the limit that t_st < t_max
-        """
-
-        list_tmax = []
-        perm = []
-        #TODO optimise the for loops (possibility to reduce one)
-        for i in range(self._NINTERVENTIONS):
-            intv = self._list_interventions[i]
-            list_tmax.append(self._interventions[intv]["tmax"])
-            print("TAG 1")
-            perm.append(1)
-            
-        for i in range(self._NINTERVENTIONS):
-            print("TAG 2")
-            perm[i] = (n % list_tmax[i]) + 1
-            n = int(n / list_tmax[i])
-            if n <= 0:
-                break
-        
-        return perm
-    """
-    
-    """
-    def checkValidity2(self, perm: list):
-        """
-        #Ckeck validity of a certain permutation.
-        #Except the criteria 1, since we assume the
-        #permulation is generated by tmax. 
-        #According to three criterias.
-        #Given the serial number of permulation.
-        """
-    
-        # Criteria 2: exclution
-        if len(self._exclusions) == 0:
-        # if no exclusion is listed
-            pass
-        else:
-            for key in self._exclusions.keys():
-                # current exclusion
-                exc = self._exclusions[key]
-                
-                # intervention's index in _list_interventions
-                intv1 = self._list_interventions.index(exc[0])
-                intv2 = self._list_interventions.index(exc[1])
-                
-                # search the start time for interventions
-                t1_st = perm[intv1]
-                t2_st = perm[intv2]
-                season = exc[2]
-                # two interventions in the same season and same time
-                if ( t1_st in self._seasons[season] \
-                    or str(t1_st) in self._seasons[season] ) \
-                    and ( t2_st in self._seasons[season] \
-                    or str(t2_st) in self._seasons[season] ) \
-                    and t1_st == t2_st:
-                    # TODO Verify if the exclusion is on season or time_st
-                    #print('No') # debugmsg
-                    return False
-        
-        # Criteria 3 : resources within range
-        for c in self._list_resources:
-        # for each resources, traverse each time period
-        
-            for t in range(self._T):
-                # max consumption of c on time t
-                max_t = self._resources[c]['max'][t]
-                # min consumption of c on time t
-                min_t = self._resources[c]['min'][t]
-                
-                # resource consumption
-                res = 0
-                
-                for i in range(self._NINTERVENTIONS):
-                    interv = self._list_interventions[i]
-                    if t + 1 == perm[i]: 
-                        
-                        try:
-                            # First try to find the resource consumption according to c
-                            # if this intervention does not require resource c, then pass
-                            wl = self._interventions[interv]["workload"][c]
-                            
-                            # Then try to find the consumption according to t_st
-                            # if this intervention did not list the complete t_st, then pass
-                            # I struggle with the name, but it refers to
-                            # the part like this {'1': 31, '2': 21, '3': 14, ....}
-                            vector123 = wl[str(t+1)] 
-                            # t+1 since t start from 0 here
-                            vector123 = dict(sorted(vector123.items()))
-                            # make the vector in order (in case it's not)
-                            
-                            # add up resource consumption for each intervention
-                            res += int(vector123[str(t+1)])
-                        except:
-                            pass
-                            
-                if res < min_t or res > max_t:
-                    #print('Noo') # debugmsg
-                    return False
-                    
-        return True
-        """
-        
-        def treeSearchTmax(self):
-            """
-            Find the solution according to Tmax
-            """
-            
-            #TODO
-            
-            S = {}
-            S2 = self._list_interventions
-            
-            getListTmax()
-            dof = self._list_tmax
-            
-            # sort dictionary (degree of freedom)
-            dof = {k: v for k, v in sorted(dof.items(), key=lambda item: item[1])}
-            
-            S = {}
-            #for intv in self._list_interventions:
-            #    tree[intv] = 1
-            
-            nodes = list(dof.keys())
-            idx = 0
-            n_begin = 1
-            
-            while(True):
-                # get the intervention name for the current node
-                intv = nodes[idx]
-                # reset validity to default (false)
-                isValidNode = False
-                
-                ##print("Looping for {} within range [{}, {}]".format(intv, n_begin, dof[intv]))
-                for t_st in range(n_begin, dof[intv]+1):
-                    S[intv] = t_st
-                    
-                    # check validity
-                    if ( self.checkTmax(S) \ 
-                        and self.checkExclusion(S) \
-                        and self.checkResource(S) ):
-                        ##print("Temporary solution found at t_st = {}".format(t_st))
-                        # if ok, move to the next node
-                        idx = idx + 1
-                        # and reset the n_begin for the next node
-                        n_begin = 1
-                        # and set the validity flag
-                        isValidNode = True
-                        break
-                    else:
-                        # if not valid, delete this item
-                        S.pop(intv)
-                
-                if not isValidNode:
-                    # if the whole node is not valid, go back to parent node
-                    ##print("No valid solution found for this branch...\nGoing back.")
-                    n_begin = n_begin + 1
-                    idx = idx - 1
-                
-                if idx >= len(dof):
-                    break
-                    
-            return S
-                
-                
-        
-        def checkTmax(self, S):
-            # Criteria 1: t_st before tmax
-            
-            ##for i in self._list_interventions:
-            for i in S.keys():
-                if S[i] > int(self._interventions[i]["tmax"]):
-                    #print('no') # debugmsg
-                    return False
-            return True
-            
-        def checkExclusion(self, S):
-            # Criteria 2: exclusion
-            if len(self._exclusions) == 0:
-            # if no exclusion is listed
-                pass
-            else:
-                for key in self._exclusions.keys():
-                    # current exclusion
-                    exc = self._exclusions[key]
-                    
-                    # intervention's index in _list_interventions
-                    intv1 = exc[0]
-                    intv2 = exc[1]
-                    season = exc[2]
-                    
-                    # for the local checker
-                    if not (intv1 in S and intv2 in S):
-                        break 
-                        
-                    # search the start time for interventions
-                    t1_st = S[intv1]
-                    t2_st = S[intv2]
-                    
-                    # two interventions in the same season and same time
-                    if ( (t1_st in self._seasons[season] \
-                        or str(t1_st) in self._seasons[season] ) \
-                        and ( t2_st in self._seasons[season] \
-                        or str(t2_st) in self._seasons[season] ) \
-                        and t1_st == t2_st:
-                        # TODO Verify if the exclusion is on season or time_st
-                        #print('No') # debugmsg
-                        return False
-            return True
-        
-        def checkResource(self, S):
-            # Criteria 3 : resources within range
-            for c in self._list_resources:
-            # for each resources, traverse each time period
-            
-                for t in range(self._T):
-                    # max consumption of c on time t
-                    max_t = self._resources[c]['max'][t]
-                    # min consumption of c on time t
-                    min_t = self._resources[c]['min'][t]
-                    
-                    # resource consumption
-                    res = 0
-                    
-                    ##for intv in self._list_interventions:
-                    for intv in S.keys():
-                        if t + 1 == S[intv]: 
-                            
-                            try:
-                                # First try to find the resource consumption according to c
-                                # if this intervention does not require resource c, then pass
-                                wl = self._interventions[intv]["workload"][c]
-                                
-                                # Then try to find the consumption according to t_st
-                                # if this intervention did not list the complete t_st, then pass
-                                # I struggle with the name, but it refers to
-                                # the part like this {'1': 31, '2': 21, '3': 14, ....}
-                                vector123 = wl[str(t+1)] 
-                                # t+1 since t start from 0 here
-                                vector123 = dict(sorted(vector123.items()))
-                                # make the vector in order (in case it's not)
-                                
-                                # add up resource consumption for each intervention
-                                res += int(vector123[str(t+1)])
-                            except:
-                                pass
-                                
-                    if res < min_t or res > max_t:
-                        #print('Noo') # debugmsg
-                        return False
-            return True
 
